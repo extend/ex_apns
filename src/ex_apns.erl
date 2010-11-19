@@ -39,6 +39,7 @@
 -export([start/3,
          start_link/3,
          send/3,
+         send/4,
          feedback/1,
          token_to_integer/1,
          token_to_binary/1]).
@@ -50,7 +51,7 @@
          terminate/2,
          code_change/3]).
 
--record(state, {env, certfile, socket}).
+-record(state, {env, certfile, socket, next = 0}).
 
 
 %% @spec start(atom(), env(), string()) -> {ok, Pid} | start_error()
@@ -70,6 +71,11 @@ start_link(Name, Env, CertFile) ->
 %% @doc Send a notification.
 send(ServerRef, Token, Payload) ->
   gen_server:cast(ServerRef, {send, Token, Payload}).
+
+%% @spec send(server_ref(), token(), payload(), integer()) -> ok
+%% @doc Send a notification with an expiration timestamp.
+send(ServerRef, Token, Payload, Expiry) ->
+  gen_server:cast(ServerRef, {send, Token, Payload, Expiry}).
 
 %% @spec feedback(server_ref()) -> feedback() | {error, term()}
 %% @doc Retrieve feedback of a given ex_apns process.
@@ -112,13 +118,22 @@ handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
 %% @hidden
-handle_cast({send, Token, Payload}, State = #state{socket = Socket}) ->
+handle_cast({send, Token, Payload}, State) ->
   TokenInt = token_to_integer(Token),
   PayloadBin = payload_to_binary(Payload),
   Packet = [<<0, 32:16, TokenInt:256,
             (iolist_size(PayloadBin)):16>> | PayloadBin],
-  ok = ssl:send(Socket, Packet),
-  {noreply, State};
+  error_logger:info_msg("~w[~w]: sending simple notification:~n~p~n",
+                        [?MODULE, name(), Payload]),
+  send(Packet, State);
+handle_cast({send, Token, Payload, Expiry}, State = #state{next = Id}) ->
+  TokenInt = token_to_integer(Token),
+  PayloadBin = payload_to_binary(Payload),
+  Packet = [<<1, Id:32, Expiry:32, 32:16, TokenInt:256,
+              (iolist_size(PayloadBin)):16>> | PayloadBin],
+  error_logger:info_msg("~w[~w]: sending extended notification ~B:~n~p~n",
+                        [?MODULE, name(), Id, Payload]),
+  send(Packet, State#state{next = Id + 1});
 handle_cast(_Msg, State) ->
   {noreply, State}.
 
@@ -146,6 +161,44 @@ connect(Address, Port, CertFile) ->
                 {cacertfile, CaCertFile},
                 {ssl_imp, old}],
   ssl:connect(Address, Port, SslOptions).
+
+%% @spec connect(State::#state{}) -> {ok, #state{}} | {stop, reason()}
+%%       where reason() = closed | inet:posix()
+connect(#state{env = Env, certfile = CertFile}) ->
+  connect(env_to_gateway(Env), 2195, CertFile).
+
+%% @spec send(iodata(), #state{}) -> {noreply, #state{}} | {stop, reason()}
+%%       where reason() = closed | inet:posix()
+send(Packet, State = #state{socket = Socket}) ->
+  case ssl:send(Socket, Packet) of
+    ok -> {noreply, State};
+    {error, closed} ->
+      case read_error(Socket) of
+        undefined ->
+          Format = "~w[~w]: could not send last notification~n",
+          error_logger:error_msg(Format, [?MODULE, name()]);
+        {Identifier, Status} ->
+          Format = "~w[~w]: could not send extended notification ~B (~w)~n",
+          error_logger:error_msg(Format,
+                                 [?MODULE, name(), Identifier, Status]) end,
+      case connect(State) of
+        {ok, NewSocket} ->
+          case ssl:send(NewSocket, Packet) of
+            ok -> {noreply, State#state{socket = NewSocket}};
+            {error, Reason} -> {stop, Reason} end;
+        {error, Reason} -> {stop, Reason} end;
+    {error, Reason} -> {stop, Reason} end.
+
+read_error(Socket) ->
+  case ssl:recv(Socket, 6) of
+    {ok, <<8, Status, Identifier:32>>} when Status =/= 0 ->
+      {Identifier, status_to_reason(Status)};
+    _ -> undefined end.
+
+%% @spec name() -> atom()
+name() ->
+  {registered_name, Name} = process_info(self(), registered_name),
+  Name.
 
 %% @spec feedback_loop(ssl:socket()) -> feedback() | {error, reason()}
 %%       where reason() = {bad_recv, binary()} | term()
@@ -189,3 +242,23 @@ payload_to_binary(Bin) when is_binary(Bin) ->
   Bin;
 payload_to_binary(List) when is_list(List) ->
   List.
+
+%% @spec status_to_reason(Integer::integer()) -> atom()
+status_to_reason(1) ->
+  processing_error;
+status_to_reason(2) ->
+  missing_device_token;
+status_to_reason(3) ->
+  missing_topic;
+status_to_reason(4) ->
+  missing_payload;
+status_to_reason(5) ->
+  invalid_token_size;
+status_to_reason(6) ->
+  invalid_topic_size;
+status_to_reason(7) ->
+  invalid_payload_size;
+status_to_reason(8) ->
+  invalid_token;
+status_to_reason(255) ->
+  unknown.

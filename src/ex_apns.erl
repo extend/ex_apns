@@ -23,7 +23,8 @@
 -behaviour(gen_server).
 -author('Anthony Ramine <n.oxyde@gmail.com>').
 
--export([start/3,
+-export([start/0,
+         start/3,
          start_link/3,
          send/3,
          send/4,
@@ -40,6 +41,10 @@
 
 -record(state, {env, certfile, socket, next = 0}).
 
+%% @equiv application:start(ex_apns)
+start() ->
+  ssl:start(),
+  application:start(ex_apns).
 
 %% @spec start(atom(), env(), string()) -> {ok, Pid} | start_error()
 %% @doc Create an ex_apns process.

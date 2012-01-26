@@ -141,7 +141,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%       where address() = string() | atom() | inet:ip_address()
 %%             result() = {ok, ssl:socket()} | {error, inet:posix()}
 connect(Address, Port, CertFile) ->
-  CaCertFile = filename:join([code:priv_dir(?MODULE), "entrust_ev_ca.cer"]),
+  CaCertFile = filename:join([code:priv_dir(?MODULE), "entrust_2048_ca.cer"]),
   SslOptions = [binary,
                 {active, false},
                 {certfile, CertFile},

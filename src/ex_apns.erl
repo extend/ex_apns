@@ -16,7 +16,7 @@
 %% @type start_error() = {error, {already_started, pid()} | term()}.
 %% @type server_ref() = Name::atom() | {Name::atom(), Node::atom()} | pid().
 %% @type token() = iodata() | integer().
-%% @type payload() = mochijson2:json_object() | iodata().
+%% @type payload() = term().
 %% @type feedback() = [{token(), Timestamp::integer()}].
 
 -module(ex_apns).
@@ -107,7 +107,7 @@ handle_call(_Request, _From, State) ->
 %% @hidden
 handle_cast({send, Token, Payload}, State) ->
   TokenInt = token_to_integer(Token),
-  PayloadBin = payload_to_binary(Payload),
+  PayloadBin = jsx:term_to_json(Payload),
   Packet = [<<0, 32:16, TokenInt:256,
             (iolist_size(PayloadBin)):16>> | PayloadBin],
   error_logger:info_msg("~w[~w]: sending simple notification:~n~p~n",
@@ -115,7 +115,7 @@ handle_cast({send, Token, Payload}, State) ->
   send(Packet, State);
 handle_cast({send, Token, Payload, Expiry}, State = #state{next = Id}) ->
   TokenInt = token_to_integer(Token),
-  PayloadBin = payload_to_binary(Payload),
+  PayloadBin = jsx:term_to_json(Payload),
   Packet = [<<1, Id:32, Expiry:32, 32:16, TokenInt:256,
               (iolist_size(PayloadBin)):16>> | PayloadBin],
   error_logger:info_msg("~w[~w]: sending extended notification ~B:~n~p~n",
@@ -222,13 +222,6 @@ token_to_integer(<<C, Rest/binary>>, I) when C >= $A, C =< $F ->
 token_to_integer(<<>>, I) ->
   I.
 
-%% @spec payload_to_binary(Payload::payload()) -> iodata()
-payload_to_binary(Json = {struct, _Properties}) ->
-  mochijson2:encode(Json);
-payload_to_binary(Bin) when is_binary(Bin) ->
-  Bin;
-payload_to_binary(List) when is_list(List) ->
-  List.
 
 %% @spec status_to_reason(Integer::integer()) -> atom()
 status_to_reason(1) ->

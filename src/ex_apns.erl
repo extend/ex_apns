@@ -115,16 +115,12 @@ handle_cast({send, Token, Payload}, State) ->
   PayloadBin = jsx:term_to_json(Payload),
   Packet = [<<0, 32:16, TokenInt:256,
             (iolist_size(PayloadBin)):16>> | PayloadBin],
-  error_logger:info_msg("~w[~w]: sending simple notification:~n~p~n",
-                        [?MODULE, name(), Payload]),
   send(Packet, State);
 handle_cast({send, Token, Payload, Expiry}, State = #state{next = Id}) ->
   TokenInt = token_to_integer(Token),
   PayloadBin = jsx:term_to_json(Payload),
   Packet = [<<1, Id:32, Expiry:32, 32:16, TokenInt:256,
               (iolist_size(PayloadBin)):16>> | PayloadBin],
-  error_logger:info_msg("~w[~w]: sending extended notification ~B:~n~p~n",
-                        [?MODULE, name(), Id, Payload]),
   send(Packet, State#state{next = Id + 1});
 handle_cast(_Msg, State) ->
   {noreply, State}.

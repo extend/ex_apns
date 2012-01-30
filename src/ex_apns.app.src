@@ -15,7 +15,7 @@
 {application, ex_apns,
  [
   {description, "An APNS client"},
-  {vsn, "1.0"},
+  {vsn, "1.0.1"},
   {registered, [ex_apns_sup]},
   {applications, [
                   kernel,

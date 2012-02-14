@@ -1,42 +1,30 @@
-%% Copyright (c) 2010, Dev:Extend
-%% All rights reserved.
+%% Copyright (c) 2011, Anthony Ramine <n.oxyde@gmail.com>
 %%
-%% Redistribution and use in source and binary forms, with or without
-%% modification, are permitted provided that the following conditions are met:
+%% Permission to use, copy, modify, and/or distribute this software for any
+%% purpose with or without fee is hereby granted, provided that the above
+%% copyright notice and this permission notice appear in all copies.
 %%
-%%  * Redistributions of source code must retain the above copyright notice,
-%%    this list of conditions and the following disclaimer.
-%%  * Redistributions in binary form must reproduce the above copyright
-%%    notice, this list of conditions and the following disclaimer in the
-%%    documentation and/or other materials provided with the distribution.
-%%  * Neither the name of Dev:Extend nor the names of its contributors may be
-%%    used to endorse or promote products derived from this software without
-%%    specific prior written permission.
-%%
-%% THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-%% AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-%% IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-%% ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
-%% LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-%% CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-%% SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-%% INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-%% CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-%% ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-%% POSSIBILITY OF SUCH DAMAGE.
+%% THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+%% WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+%% MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+%% ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+%% WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+%% ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+%% OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 %% @type env() = production | development.
 %% @type start_error() = {error, {already_started, pid()} | term()}.
 %% @type server_ref() = Name::atom() | {Name::atom(), Node::atom()} | pid().
 %% @type token() = iodata() | integer().
-%% @type payload() = mochijson2:json_object() | iodata().
+%% @type payload() = term().
 %% @type feedback() = [{token(), Timestamp::integer()}].
 
 -module(ex_apns).
 -behaviour(gen_server).
--author('Anthony Ramine <nox@dev-extend.eu>').
+-author('Anthony Ramine <n.oxyde@gmail.com>').
 
--export([start/3,
+-export([start/0,
+         start/3,
          start_link/3,
          send/3,
          send/4,
@@ -53,6 +41,10 @@
 
 -record(state, {env, certfile, socket, next = 0}).
 
+%% @equiv application:start(ex_apns)
+start() ->
+  ssl:start(),
+  application:start(ex_apns).
 
 %% @spec start(atom(), env(), string()) -> {ok, Pid} | start_error()
 %% @doc Create an ex_apns process.
@@ -120,19 +112,15 @@ handle_call(_Request, _From, State) ->
 %% @hidden
 handle_cast({send, Token, Payload}, State) ->
   TokenInt = token_to_integer(Token),
-  PayloadBin = payload_to_binary(Payload),
+  PayloadBin = jsx:term_to_json(Payload),
   Packet = [<<0, 32:16, TokenInt:256,
             (iolist_size(PayloadBin)):16>> | PayloadBin],
-  error_logger:info_msg("~w[~w]: sending simple notification:~n~p~n",
-                        [?MODULE, name(), Payload]),
   send(Packet, State);
 handle_cast({send, Token, Payload, Expiry}, State = #state{next = Id}) ->
   TokenInt = token_to_integer(Token),
-  PayloadBin = payload_to_binary(Payload),
+  PayloadBin = jsx:term_to_json(Payload),
   Packet = [<<1, Id:32, Expiry:32, 32:16, TokenInt:256,
               (iolist_size(PayloadBin)):16>> | PayloadBin],
-  error_logger:info_msg("~w[~w]: sending extended notification ~B:~n~p~n",
-                        [?MODULE, name(), Id, Payload]),
   send(Packet, State#state{next = Id + 1});
 handle_cast(_Msg, State) ->
   {noreply, State}.
@@ -154,12 +142,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%       where address() = string() | atom() | inet:ip_address()
 %%             result() = {ok, ssl:socket()} | {error, inet:posix()}
 connect(Address, Port, CertFile) ->
-  CaCertFile = filename:join([code:priv_dir(?MODULE), "entrust_ev_ca.cer"]),
+  CaCertFile = filename:join([code:priv_dir(?MODULE), "entrust_2048_ca.cer"]),
   SslOptions = [binary,
                 {active, false},
                 {certfile, CertFile},
-                {cacertfile, CaCertFile},
-                {ssl_imp, old}],
+                {cacertfile, CaCertFile}],
   ssl:connect(Address, Port, SslOptions).
 
 %% @spec connect(State::#state{}) -> {ok, #state{}} | {stop, reason()}
@@ -235,13 +222,6 @@ token_to_integer(<<C, Rest/binary>>, I) when C >= $A, C =< $F ->
 token_to_integer(<<>>, I) ->
   I.
 
-%% @spec payload_to_binary(Payload::payload()) -> iodata()
-payload_to_binary(Json = {struct, _Properties}) ->
-  mochijson2:encode(Json);
-payload_to_binary(Bin) when is_binary(Bin) ->
-  Bin;
-payload_to_binary(List) when is_list(List) ->
-  List.
 
 %% @spec status_to_reason(Integer::integer()) -> atom()
 status_to_reason(1) ->

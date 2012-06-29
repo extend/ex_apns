@@ -1,4 +1,4 @@
-%% Copyright (c) 2011, Anthony Ramine <n.oxyde@gmail.com>
+%% Copyright (c) 2012, Anthony Ramine <n.oxyde@gmail.com>
 %%
 %% Permission to use, copy, modify, and/or distribute this software for any
 %% purpose with or without fee is hereby granted, provided that the above
@@ -25,6 +25,7 @@
 
 -export([start/0,
          start/3,
+         stop/1,
          start_link/3,
          send/3,
          send/4,
@@ -51,6 +52,10 @@ start() ->
 %%      The resulting process will be locally registered as `Name'.
 start(Name, Env, CertFile) ->
   ex_apns_sup:start_child(Name, Env, CertFile).
+
+%% @doc stop(server_ref()) -> stopped.
+stop(ServerRef) ->
+  gen_server:call(ServerRef, stop, infinity).
 
 %% @spec start_link(atom(), env(), string()) -> {ok, Pid} | start_error()
 %% @doc Create an ex_apns process as part of a supervision tree.
@@ -106,6 +111,8 @@ init({Env, CertFile}) ->
 handle_call(feedback_socket, _From,
             State = #state{env = Env, certfile = CertFile}) ->
   {reply, connect(env_to_feedback(Env), 2196, CertFile), State};
+handle_call(stop, _From, State) ->
+  {stop, normal, stopped, State};
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 

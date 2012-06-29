@@ -1,4 +1,4 @@
-%% Copyright (c) 2011, Anthony Ramine <n.oxyde@gmail.com>
+%% Copyright (c) 2012, Anthony Ramine <n.oxyde@gmail.com>
 %%
 %% Permission to use, copy, modify, and/or distribute this software for any
 %% purpose with or without fee is hereby granted, provided that the above
@@ -24,7 +24,7 @@
 
 -export([init/1]).
 
--define(CHILD(I, Type), {I, {I, start_link, []}, permanent, 5000, Type, [I]}).
+-define(CHILD(I, Type), {I, {I, start_link, []}, transient, 5000, Type, [I]}).
 
 
 %% @spec start_link() -> {ok, Pid} | start_error()
